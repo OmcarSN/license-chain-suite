@@ -6,31 +6,78 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Badge } from "@/components/ui/badge";
 import Header from "@/components/Header";
 import { Search, CheckCircle, XCircle } from "lucide-react";
+import { supabase } from "@/integrations/supabase/client";
+import { useToast } from "@/hooks/use-toast";
 
 const Verify = () => {
   const [licenseId, setLicenseId] = useState("");
   const [verificationResult, setVerificationResult] = useState<any>(null);
   const [loading, setLoading] = useState(false);
+  const { toast } = useToast();
 
-  const handleVerify = (e: React.FormEvent) => {
+  const handleVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
+    setVerificationResult(null);
     
-    // Simulate verification
-    setTimeout(() => {
-      setLoading(false);
-      // Mock result - in real app this would be blockchain verification
-      setVerificationResult({
-        isValid: licenseId.length > 5,
-        licenseNumber: licenseId,
-        businessName: "ABC Trading Ltd.",
-        licenseType: "Business License",
-        issueDate: "January 1, 2024",
-        expiryDate: "December 31, 2025",
-        status: "Active",
-        blockchainHash: "0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb1"
+    try {
+      // Query only safe public fields - NOT exposing id, user_id, application_id
+      const { data, error } = await supabase
+        .from('licenses')
+        .select('license_number, license_type, status, business_name, issue_date, expiry_date, blockchain_hash')
+        .eq('license_number', licenseId)
+        .maybeSingle();
+
+      if (error) {
+        console.error('Verification error:', error);
+        toast({
+          title: "Error",
+          description: "Failed to verify license. Please try again.",
+          variant: "destructive"
+        });
+        setLoading(false);
+        return;
+      }
+
+      if (!data) {
+        setVerificationResult({
+          isValid: false,
+          licenseNumber: licenseId
+        });
+      } else {
+        // Check if license is expired
+        const expiryDate = new Date(data.expiry_date);
+        const isExpired = expiryDate < new Date();
+        
+        setVerificationResult({
+          isValid: !isExpired && data.status === 'active',
+          licenseNumber: data.license_number,
+          businessName: data.business_name,
+          licenseType: data.license_type,
+          issueDate: new Date(data.issue_date).toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+          }),
+          expiryDate: new Date(data.expiry_date).toLocaleDateString('en-US', { 
+            year: 'numeric', 
+            month: 'long', 
+            day: 'numeric' 
+          }),
+          status: isExpired ? 'Expired' : data.status,
+          blockchainHash: data.blockchain_hash || 'N/A'
+        });
+      }
+    } catch (err) {
+      console.error('Unexpected error:', err);
+      toast({
+        title: "Error",
+        description: "An unexpected error occurred.",
+        variant: "destructive"
       });
-    }, 1000);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
